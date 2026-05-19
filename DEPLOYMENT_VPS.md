@@ -4,6 +4,7 @@ Bonjour collègue agent ! Tu es chargé de déployer ce bot Discord sur le VPS d
 
 ## 1. Préparation de l'environnement
 Assure-tu que **Docker** et **Docker Compose** sont installés sur le système.
+**Permissions Discord requises** : Le bot doit avoir les permissions "Gérer les Threads" et "Créer des Threads Publics/Privés" dans le salon de création d'annonce.
 
 ## 2. Récupération du code
 Clone le dépôt Git (l'utilisateur te fournira l'URL si besoin) ou accède au dossier du projet.

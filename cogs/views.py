@@ -12,6 +12,7 @@ Flux de création d'annonce :
 
 ListingActionsView : boutons sur le post publié.
 """
+import asyncio
 import discord
 
 import config
@@ -45,11 +46,38 @@ class PanelView(discord.ui.View):
 
     @staticmethod
     async def _start(interaction: discord.Interaction, listing_type: str):
-        await interaction.response.send_message(
-            "Sélectionne le TCG :",
-            view=TCGSelectView(listing_type),
-            ephemeral=True,
-        )
+        # Créer un salon (thread) privé pour l'utilisateur
+        thread_name = f"Création {config.LISTING_TYPES[listing_type]['label']} — {interaction.user.display_name}"
+        try:
+            thread = await interaction.channel.create_thread(
+                name=thread_name,
+                type=discord.ChannelType.private_thread,
+                invitable=False
+            )
+            await thread.add_user(interaction.user)
+            
+            await interaction.response.send_message(
+                f"✅ Ton espace de création est prêt ici : {thread.mention}\n"
+                "(Ce salon sera supprimé automatiquement une fois terminé)",
+                ephemeral=True
+            )
+            
+            # Lancer la suite dans le thread
+            await thread.send(
+                content=f"Bienvenue {interaction.user.mention} ! Commençons ton annonce.\n"
+                        "Sélectionne d'abord le jeu concerné :",
+                view=TCGSelectView(listing_type)
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Je n'ai pas la permission de créer un salon privé ici. Contacte un admin.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Erreur lors de la création de l'espace : {e}",
+                ephemeral=True
+            )
 
 
 # ════════════════════════════════════════════════════════════
@@ -165,15 +193,16 @@ class ListingModal(discord.ui.Modal):
         # Achat → pas d'état de carte demandé, on saute à la photo
         if self.listing_type == "achat":
             await interaction.response.send_message(
-                "📸 Ajoute une photo (ou passe) :",
-                view=PhotoView(draft),
-                ephemeral=True,
+                "📸 **Étape Photos**\n\n"
+                "Glisse et dépose tes photos directement ici dans ce salon.\n"
+                "Tu peux en mettre plusieurs (recto, verso, etc.).\n\n"
+                "👉 Clique sur **Continuer** une fois que tu as envoyé tes photos.",
+                view=PhotoUploadView(draft),
             )
         else:
             await interaction.response.send_message(
-                "Sélectionne l'état :",
+                "Sélectionne l'état de la carte :",
                 view=ConditionSelectView(draft),
-                ephemeral=True,
             )
 
 
@@ -197,59 +226,50 @@ class ConditionSelectView(discord.ui.View):
     async def _on_select(self, interaction: discord.Interaction):
         self.draft["condition"] = self._select.values[0]
         await interaction.response.send_message(
-            "📸 Ajoute une photo (ou passe) :",
-            view=PhotoView(self.draft),
-            ephemeral=True,
+            "📸 **Étape Photos**\n\n"
+            "Glisse et dépose tes photos directement ici dans ce salon.\n"
+            "Tu peux en mettre plusieurs (recto, verso, etc.).\n\n"
+            "👉 Clique sur **Continuer** une fois que tu as envoyé tes photos.",
+            view=PhotoUploadView(self.draft),
         )
 
 
 # ════════════════════════════════════════════════════════════
-# 5. PHOTO
+# 5. PHOTO (GLISSER-DÉPOSER)
 # ════════════════════════════════════════════════════════════
-class PhotoView(discord.ui.View):
+class PhotoUploadView(discord.ui.View):
     def __init__(self, draft: dict):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.draft = draft
 
-    @discord.ui.button(label="Ajouter un lien photo", style=discord.ButtonStyle.primary, emoji="🔗")
-    async def add_link(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        await interaction.response.send_modal(PhotoLinkModal(self.draft))
+    @discord.ui.button(label="Continuer", style=discord.ButtonStyle.success, emoji="➡️")
+    async def continue_step(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        # On scanne les 50 derniers messages du salon pour trouver des images
+        # (les 50 derniers suffisent largement pour un salon de création)
+        found_urls = []
+        async for msg in interaction.channel.history(limit=50):
+            if msg.author.id == interaction.user.id and msg.attachments:
+                for attachment in msg.attachments:
+                    # Vérifier que c'est bien une image
+                    if any(attachment.filename.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]):
+                        found_urls.append(attachment.url)
 
-    @discord.ui.button(label="Passer", style=discord.ButtonStyle.secondary, emoji="➡️")
-    async def skip(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        if found_urls:
+            # On prend la photo la plus récente comme photo principale
+            # (found_urls[0] car history est du plus récent au plus ancien par défaut)
+            self.draft["photo_url"] = found_urls[0]
+            # TODO: On pourrait stocker les autres URLs dans le draft pour les afficher dans le post
+        
         await interaction.response.send_message(
+            "Vérifie ton annonce une dernière fois avant de la publier :",
             embed=embeds.build_recap_embed(self.draft),
             view=RecapView(self.draft),
-            ephemeral=True,
         )
 
-
-class PhotoLinkModal(discord.ui.Modal, title="Lien de l'image"):
-    def __init__(self, draft: dict):
-        super().__init__(timeout=300)
-        self.draft = draft
-        self.url = discord.ui.TextInput(
-            label="URL de l'image",
-            placeholder="https://i.imgur.com/...",
-            max_length=500,
-            required=True,
-        )
-        self.add_item(self.url)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        url = self.url.value.strip()
-        if not url.startswith(("http://", "https://")):
-            await interaction.response.send_message(
-                "❌ URL invalide (doit commencer par http:// ou https://).",
-                ephemeral=True,
-            )
-            return
-        self.draft["photo_url"] = url
-        await interaction.response.send_message(
-            embed=embeds.build_recap_embed(self.draft),
-            view=RecapView(self.draft),
-            ephemeral=True,
-        )
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.danger, emoji="✖️")
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.send_message("Espace de création fermé. L'annonce est annulée.")
+        await interaction.channel.delete()
 
 
 # ════════════════════════════════════════════════════════════
@@ -262,10 +282,9 @@ class RecapView(discord.ui.View):
 
     @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary, emoji="✖️")
     async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        await interaction.response.send_message(
-            "Annonce annulée. Relance depuis le panneau pour recommencer.",
-            ephemeral=True,
-        )
+        await interaction.response.send_message("Espace de création fermé. Annonce annulée.")
+        await asyncio.sleep(2)
+        await interaction.channel.delete()
 
     @discord.ui.button(label="Publier", style=discord.ButtonStyle.success, emoji="✅")
     async def publish(self, interaction: discord.Interaction, _button: discord.ui.Button):
@@ -281,7 +300,6 @@ class RecapView(discord.ui.View):
             tcg = config.TCG_CHOICES[self.draft["tcg"]]
             await interaction.response.send_message(
                 f"❌ Forum `{tcg['forum']}` introuvable. Préviens un admin.",
-                ephemeral=True,
             )
             return
 
@@ -304,18 +322,21 @@ class RecapView(discord.ui.View):
             )
             db.set_listing_post_id(listing_id, str(created.thread.id))
             await interaction.response.send_message(
-                f"✅ Annonce publiée ! → {created.thread.jump_url}",
-                ephemeral=True,
+                f"✅ Annonce publiée ! → {created.thread.jump_url}\n"
+                "Cet espace de création va se fermer.",
             )
+            
+            # Attendre un peu avant de supprimer le thread
+            await asyncio.sleep(5)
+            await interaction.channel.delete()
+
         except discord.Forbidden:
             await interaction.response.send_message(
                 "❌ Le bot n'a pas la permission de poster dans ce forum.",
-                ephemeral=True,
             )
         except Exception as e:  # noqa: BLE001
             await interaction.response.send_message(
                 f"❌ Erreur lors de la publication : `{e}`",
-                ephemeral=True,
             )
 
 
