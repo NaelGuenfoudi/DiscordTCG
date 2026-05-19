@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.dockerignore
+.env
+marketplace.db
+bot.log
+README.md
+DEPLOYMENT_VPS.md
