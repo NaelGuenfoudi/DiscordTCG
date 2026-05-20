@@ -404,21 +404,25 @@ class ListingActionsView(discord.ui.View):
             if not new_name.startswith("✅"):
                 new_name = f"✅ {new_name}"[:100]
 
+            # Update metadata first (tags and name)
             await thread.edit(
                 name=new_name,
                 applied_tags=new_tags[:5],
-                archived=True,
-                locked=True,
             )
 
             listing = db.get_listing_by_post(str(thread.id))
             if listing:
                 db.set_listing_status(listing["id"], "vendu")
 
+            # Respond BEFORE archiving, otherwise Discord rejects the response
             await interaction.response.send_message(
                 "✅ Annonce marquée comme vendue et archivée.",
                 ephemeral=True,
             )
+
+            # Finally archive and lock
+            await thread.edit(archived=True, locked=True)
+
         except Exception as e:  # noqa: BLE001
             await interaction.response.send_message(
                 f"❌ Erreur : `{e}`",
