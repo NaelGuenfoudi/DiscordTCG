@@ -55,17 +55,21 @@ def build_listing_embed(listing: dict, author: discord.abc.User) -> discord.Embe
     if listing.get("photo_url"):
         embed.set_image(url=listing["photo_url"])
 
-    # Profil vendeur (basique pour l'instant)
+    # Profil utilisateur
     profile = db.get_user_profile(str(author.id))
     if profile:
+        is_buying = listing["listing_type"] == "achat"
+        role_label = "Acheteur" if is_buying else "Vendeur"
+        
         if profile["total_feedback"] > 0:
             stars = "⭐" * max(1, min(5, round(profile["reputation_avg"])))
             rep = f"{stars} {profile['reputation_avg']:.1f}/5 ({profile['total_feedback']} avis)"
         else:
-            rep = "Nouveau vendeur (pas encore d'avis)"
+            rep = f"Nouveau {role_label.lower()} (pas encore d'avis)"
+            
         verified = "✅ Vérifié" if profile["verified"] else "🔰 Non vérifié"
         embed.add_field(
-            name="👤 Vendeur",
+            name=f"👤 {role_label}",
             value=f"{author.mention} · {verified}\n{rep}",
             inline=False,
         )
