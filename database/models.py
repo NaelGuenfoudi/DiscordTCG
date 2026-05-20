@@ -179,6 +179,60 @@ class Database:
         conn.commit()
         conn.close()
 
+    # ── Transactions & Feedbacks ──────────────────────────
+
+    def create_transaction(self, listing_id: int, seller_id: int, buyer_id: int) -> int:
+        """Crée une transaction et retourne son ID."""
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO transactions (listing_id, seller_id, buyer_id, status)
+            VALUES (?, ?, ?, 'completed')
+        """, (listing_id, seller_id, buyer_id))
+        tx_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return tx_id
+
+    def add_feedback(self, transaction_id: int, from_id: int, to_id: int, rating: int, comment: str = None) -> None:
+        """Ajoute un feedback et met à jour les stats du destinataire."""
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO feedbacks (transaction_id, from_user_id, to_user_id, rating, comment)
+            VALUES (?, ?, ?, ?, ?)
+        """, (transaction_id, from_id, to_id, rating, comment))
+        conn.commit()
+        conn.close()
+        # Mettre à jour les stats de celui qui a reçu la note
+        self.update_user_stats(to_id)
+
+    def update_user_stats(self, user_id: int) -> None:
+        """Recalcule la moyenne de réputation et le total de feedbacks."""
+        conn = self._connect()
+        cur = conn.cursor()
+        # Calcul de la moyenne et du compte depuis la table feedbacks
+        cur.execute("""
+            SELECT AVG(rating), COUNT(id)
+            FROM feedbacks
+            WHERE to_user_id = ?
+        """, (user_id,))
+        avg, count = cur.fetchone()
+
+        # Nombre de transactions uniques (en tant qu'acheteur ou vendeur)
+        cur.execute("""
+            SELECT COUNT(id) FROM transactions
+            WHERE (seller_id = ? OR buyer_id = ?) AND status = 'completed'
+        """, (user_id, user_id))
+        total_tx = cur.fetchone()[0]
+
+        cur.execute("""
+            UPDATE users
+            SET reputation_avg = ?, total_feedback = ?, total_transactions = ?
+            WHERE id = ?
+        """, (avg or 0.0, count, total_tx, user_id))
+        conn.commit()
+        conn.close()
 
 # Instance partagée
 db = Database()

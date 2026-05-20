@@ -131,3 +131,52 @@ def build_panel_embed() -> discord.Embed:
     )
     embed.set_footer(text="Marketplace TCG")
     return embed
+
+
+def build_profile_embed(user: discord.User | discord.Member, profile: dict) -> discord.Embed:
+    """Construit l'embed de profil public d'un utilisateur."""
+    is_verified = profile.get("verified", False)
+    status_str = "✅ Utilisateur Vérifié" if is_verified else "🔰 Utilisateur Non Vérifié"
+    
+    embed = discord.Embed(
+        title=f"Profil Marketplace de {user.display_name}",
+        color=config.COLORS["success"] if is_verified else config.COLORS["info"]
+    )
+    
+    # Étoiles et Moyenne
+    avg = profile.get("reputation_avg", 0)
+    total_feedback = profile.get("total_feedback", 0)
+    stars = "⭐" * max(1, min(5, round(avg))) if total_feedback > 0 else "Aucune note"
+    
+    embed.add_field(
+        name="Réputation", 
+        value=f"{stars}\n**{avg:.2f} / 5** ({total_feedback} avis)", 
+        inline=True
+    )
+    
+    embed.add_field(
+        name="Transactions", 
+        value=f"📦 **{profile.get('total_transactions', 0)}** terminées", 
+        inline=True
+    )
+    
+    embed.add_field(name="Statut", value=status_str, inline=False)
+    
+    embed.set_thumbnail(url=user.display_avatar.url)
+    
+    # Formatage de la date pour Discord (ex: <t:12345678:R> affiche "il y a 2 jours")
+    # On gère le cas où member_since est une string venant de SQLite
+    since = profile.get("member_since", "")
+    if since:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            timestamp = int(dt.timestamp())
+            footer_text = f"Membre marketplace depuis le {dt.strftime('%d/%m/%Y')}"
+            embed.set_footer(text=footer_text)
+        except Exception:
+            embed.set_footer(text="Membre marketplace")
+    else:
+        embed.set_footer(text="Membre marketplace")
+    
+    return embed

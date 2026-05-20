@@ -12,8 +12,11 @@ import sys
 import discord
 from discord.ext import commands
 
+from discord import app_commands
 import config
+from cogs import embeds
 from cogs.views import ListingActionsView, PanelView
+from database.models import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +60,40 @@ async def on_ready():
         )
     )
     log.info("Bot prêt.")
+
+
+# ── Commandes Profil ───────────────────────────────────────
+
+async def _show_profile(interaction: discord.Interaction, user: discord.User | discord.Member):
+    """Logique commune pour afficher le profil."""
+    # On diffère la réponse immédiatement pour éviter le timeout de 3s
+    await interaction.response.defer(ephemeral=True)
+    
+    profile = db.get_user_profile(str(user.id))
+    if not profile:
+        # Créer un profil vide si l'utilisateur n'existe pas encore en BDD
+        db.get_or_create_user(str(user.id), user.display_name)
+        profile = db.get_user_profile(str(user.id))
+
+    from cogs.views import ProfileShareView
+    embed = embeds.build_profile_embed(user, profile)
+    view = ProfileShareView(user, profile)
+    
+    # On utilise followup.send car on a déjà fait un defer()
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+@bot.tree.command(name="profil", description="Affiche le profil marketplace d'un utilisateur")
+@app_commands.describe(membre="Le membre dont tu veux voir le profil")
+async def profil(interaction: discord.Interaction, membre: discord.User = None):
+    target = membre or interaction.user
+    await _show_profile(interaction, target)
+
+
+# Commande clic-droit (Context Menu) - Toujours éphémère
+@bot.tree.context_menu(name="Voir le profil TCG")
+async def profil_context(interaction: discord.Interaction, user: discord.Member):
+    await _show_profile(interaction, user)
 
 
 async def main():
