@@ -104,6 +104,8 @@ async def main():
     async with bot:
         await bot.load_extension("cogs.marketplace")
         log.info("Cog chargé : cogs.marketplace")
+        await bot.load_extension("cogs.quiz")
+        log.info("Cog chargé : cogs.quiz")
         await bot.start(config.DISCORD_TOKEN)
 
 

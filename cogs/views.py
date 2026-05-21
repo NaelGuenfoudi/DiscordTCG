@@ -64,7 +64,7 @@ class PanelView(discord.ui.View):
             
             # Lancer la suite dans le thread
             await thread.send(
-                content=f"Bienvenue {interaction.user.mention} ! Commençons ton annonce.\n"
+                content=f"Bienvenue {interaction.user.display_name} ! Commençons ton annonce.\n"
                         "Sélectionne d'abord le jeu concerné :",
                 view=TCGSelectView(listing_type)
             )
