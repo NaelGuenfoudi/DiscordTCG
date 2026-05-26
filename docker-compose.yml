@@ -6,6 +6,7 @@ services:
     env_file:
       - .env
     volumes:
+      - .:/app
       - ./marketplace.db:/app/marketplace.db
       - ./bot.log:/app/bot.log
     logging:
