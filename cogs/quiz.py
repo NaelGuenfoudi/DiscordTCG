@@ -13,6 +13,18 @@ def normalize_text(text: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def is_quiz_staff():
+    """Vérifie si l'utilisateur est admin ou possède un rôle Staff/Animateur."""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if interaction.user.guild_permissions.administrator:
+            return True
+        
+        allowed_roles = {"staff", "animateur"}
+        user_role_names = {role.name.lower() for role in interaction.user.roles}
+        return not allowed_roles.isdisjoint(user_role_names)
+    
+    return app_commands.check(predicate)
+
 class QuizLoadModal(ui.Modal, title="Chargement du Quiz"):
     reponses = ui.TextInput(
         label="Réponses (une par ligne)",
@@ -58,25 +70,25 @@ class Quiz(commands.Cog):
         overwrite.send_messages = False if locked else None
         await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
 
-    @app_commands.command(name="lock", description="[Admin] Verrouille le salon.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="lock", description="[Staff] Verrouille le salon.")
+    @is_quiz_staff()
     async def lock(self, interaction: discord.Interaction):
         await self.set_channel_lock(interaction.channel, True)
         await interaction.response.send_message("🔒 Salon verrouillé.", ephemeral=False)
 
-    @app_commands.command(name="unlock", description="[Admin] Déverrouille le salon.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="unlock", description="[Staff] Déverrouille le salon.")
+    @is_quiz_staff()
     async def unlock(self, interaction: discord.Interaction):
         await self.set_channel_lock(interaction.channel, False)
         await interaction.response.send_message("🔓 Salon déverrouillé.", ephemeral=False)
 
-    @app_commands.command(name="quiz_load", description="[Admin] Charger les réponses.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="quiz_load", description="[Staff] Charger les réponses.")
+    @is_quiz_staff()
     async def quiz_load(self, interaction: discord.Interaction):
         await interaction.response.send_modal(QuizLoadModal(self))
 
-    @app_commands.command(name="quiz_reponses", description="[Admin] Liste les réponses.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="quiz_reponses", description="[Staff] Liste les réponses.")
+    @is_quiz_staff()
     async def quiz_reponses(self, interaction: discord.Interaction):
         if not self.answers:
             await interaction.response.send_message("❌ Aucune réponse chargée.", ephemeral=True)
@@ -84,9 +96,9 @@ class Quiz(commands.Cog):
         reponses_str = "\n".join([f"{i+1}- {resp}" for i, resp in enumerate(self.answers)])
         await interaction.response.send_message(f"📋 **Réponses :**\n{reponses_str}", ephemeral=True)
 
-    @app_commands.command(name="quiz_force_winner", description="[Admin] Change le gagnant de la dernière question.")
+    @app_commands.command(name="quiz_force_winner", description="[Staff] Change le gagnant de la dernière question.")
     @app_commands.describe(membre="Le membre qui aurait dû gagner")
-    @app_commands.checks.has_permissions(administrator=True)
+    @is_quiz_staff()
     async def quiz_force_winner(self, interaction: discord.Interaction, membre: discord.Member):
         if self.last_winner_id is None:
             await interaction.response.send_message("❌ Impossible de trouver le dernier gagnant.", ephemeral=True)
@@ -109,8 +121,8 @@ class Quiz(commands.Cog):
             ephemeral=False
         )
 
-    @app_commands.command(name="next", description="[Admin] Question suivante.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="next", description="[Staff] Question suivante.")
+    @is_quiz_staff()
     async def next_question(self, interaction: discord.Interaction):
         if not self.answers:
             await interaction.response.send_message("❌ Charge d'abord un quiz.", ephemeral=True)
@@ -151,6 +163,18 @@ class Quiz(commands.Cog):
         self.answers = []
         self.current_idx = -1
         self.is_listening = False
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                "❌ Cette commande est réservée au staff et aux animateurs.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"❌ Une erreur est survenue : {error}",
+                ephemeral=True
+            )
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
